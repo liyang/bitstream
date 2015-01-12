@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -34,8 +35,13 @@ import Data.String
 import Data.Word
 
 import Data.Attoparsec.Combinator as AP
+#if TRUE_NAME
+import Data.Attoparsec.ByteString (compareResults)
+import Data.Attoparsec.Types hiding (Parser)
+#else
 import Data.Attoparsec.Internal hiding (demandInput, prompt)
 import Data.Attoparsec.Internal.Types hiding (Parser, Failure, Success)
+#endif
 
 import Data.Attoparsec.Bitstream.Internal
 import Data.Bitstream (Bitstream)

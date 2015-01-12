@@ -27,6 +27,10 @@ Source-Repository head
     Type: git
     Location: git://github.com/phonohawk/bitstream.git
 
+Flag true-name
+    Description: use true-name to access attoparsec and bytestring internals
+    Default: False
+
 Library
     Build-Depends:
         attoparsec           >= 0.12,
@@ -34,6 +38,9 @@ Library
         base-unicode-symbols == 0.2.*,
         bytestring           >= 0.9 && < 0.11,
         vector               == 0.10.*
+    if flag(true-name)
+        Build-Depends: template-haskell >= 2.8, true-name >= 0.0.0.1
+        CPP-Options: -DTRUE_NAME=1
 
     Exposed-Modules:
         Data.Attoparsec.Bitstream

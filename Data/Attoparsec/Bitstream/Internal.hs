@@ -1,8 +1,13 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE UnicodeSyntax #-}
 {-# LANGUAGE ViewPatterns #-}
+#if TRUE_NAME
+{-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE TemplateHaskell #-}
+#endif
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Data.Attoparsec.Bitstream.Internal where
@@ -12,8 +17,16 @@ import Prelude.Unicode
 
 import Control.Applicative
 
+#if TRUE_NAME
+import Language.Haskell.TH.Syntax hiding (trueName)
+import Unsafe.TrueName
+
+import Data.Attoparsec.Types hiding (Parser)
+import qualified Data.Attoparsec.Types as AP
+#else
 import Data.Attoparsec.Internal.Types hiding (Parser, Failure, Success)
 import qualified Data.Attoparsec.Internal.Types as AP
+#endif
 
 import Data.Bitstream (Bitstream)
 import qualified Data.Bitstream as B hiding (Bitstream)
@@ -22,19 +35,88 @@ import qualified Data.Bitstream.Generic as B
 type Parser d = AP.Parser (Bitstream d)
 type Result d = IResult (Bitstream d)
 
+#if TRUE_NAME
+$( do
+    s ← trueName "State" ''AP.Parser
+    β ← AppT (ConT ''Bitstream) . VarT <$> newName "d"
+# if MIN_VERSION_template_haskell(2,9,0)
+    return [TySynInstD s (TySynEqn [β] β)]
+# else
+    return [TySynInstD s [β] β]
+# endif
+ )
+
+type Failure d r
+    = [quasiName| Failure ''AP.Parser |] (Bitstream d) (Bitstream d) r
+type Success d a r
+    = [quasiName| Success ''AP.Parser |] (Bitstream d) (Bitstream d) a r
+#else
 type instance State (Bitstream d) = Bitstream d
 
 type Failure d r = AP.Failure (Bitstream d) (Bitstream d) r
 type Success d a r = AP.Success (Bitstream d) (Bitstream d) a r
+#endif
 
+#if TRUE_NAME
+runParser ∷ Parser d a → Bitstream d → Pos → More →
+    Failure d r → Success d a r → Result d r
+runParser = $(VarE <$> trueName "runParser" ''AP.Parser)
+
+type Pos = [quasiName| Pos ''AP.Parser |]
+fromPos ∷ Pos → Int
+fromPos = $(fmap VarE $ trueName "fromPos" =<< trueName "Pos" ''AP.Parser)
+
+toParser = [quasiName| Parser ''AP.Parser |]
+toPos = $(fmap ConE $ trueName "Pos" =<< trueName "Pos" ''AP.Parser)
+isComplete = $(fmap ConE $ trueName "Complete" =<< trueName "More" ''AP.Parser)
+isIncomplete = $(fmap ConE $ trueName "Incomplete" =<< trueName "More" ''AP.Parser)
+type More = [quasiName| More ''AP.Parser |]
+#else
 toParser = AP.Parser
 toPos = Pos
 isComplete = Complete; isIncomplete = Incomplete
+#endif
 toParser ∷ (∀ r. Bitstream d → Pos → More →
     Failure d r → Success d a r → Result d r) → Parser d a
 toPos ∷ Int → Pos
 isComplete, isIncomplete ∷ More
 
+#if TRUE_NAME
+$( do
+    [ InstanceD cxt typ [] ]
+        ← [d| instance B.Bitstream (Bitstream d) ⇒ Chunk (Bitstream d) |]
+    α ← AppT (ConT ''Bitstream) . VarT <$> newName "d"
+    β ← newName "β"
+    b ← newName "b"
+    i ← newName "i"
+    chunkElem ← trueName "ChunkElem" ''Chunk
+    nullChunk ← trueName "nullChunk" ''Chunk
+    pappendChunk ← trueName "pappendChunk" ''Chunk
+    atBufferEnd ← trueName "atBufferEnd" ''Chunk
+    bufferElemAt ← trueName "bufferElemAt" ''Chunk
+    chunkElemToChar' ← trueName "chunkElemToChar" ''Chunk
+    let fun n pats exprQ decs = do
+            expr ← exprQ
+            return ( FunD n [ Clause pats (NormalB expr) [] ] :
+                PragmaD (InlineP n Inline FunLike AllPhases) : decs )
+    fmap ( (:[]) . InstanceD cxt typ
+# if MIN_VERSION_template_haskell(2,9,0)
+        . (TySynInstD chunkElem (TySynEqn [α] $ ConT ''Bool) :)
+# else
+        . (TySynInstD chunkElem [α] (ConT ''Bool) :)
+# endif
+        ) $ fun nullChunk [] [| B.null |]
+        =<< fun pappendChunk [] [| B.append |]
+        =<< fun atBufferEnd [WildP] [| toPos ∘ B.length |]
+        =<< fun bufferElemAt [WildP, VarP i, VarP β]
+            [| if fromPos $(pure $ VarE i) < B.length $(pure $ VarE β)
+                then Just ($(pure $ VarE β) B.!! fromPos $(pure $ VarE i), 1)
+                else Nothing |]
+        =<< fun chunkElemToChar' [WildP, VarP b]
+            [| if $(pure $ VarE b) then '1' else '0' |]
+        []
+ )
+#else
 instance B.Bitstream (Bitstream d) ⇒ Chunk (Bitstream d) where
     type ChunkElem (Bitstream d) = Bool
     nullChunk = B.null
@@ -48,6 +130,7 @@ instance B.Bitstream (Bitstream d) ⇒ Chunk (Bitstream d) where
     {-# INLINE bufferElemAt #-}
     chunkElemToChar _ b = if b then '1' else '0'
     {-# INLINE chunkElemToChar #-}
+#endif
 
 -- | Terminal failure continuation.
 failK ∷ (α ~ Bitstream d, B.Bitstream α) ⇒ Failure d a
